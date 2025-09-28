@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::{self, BufRead, BufReader},
-    path::Path,
 };
 
 pub fn run() -> ScanOutcome {

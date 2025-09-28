@@ -1,59 +1,55 @@
+use super::task_snapshot::{collect_bpf_tasks, collect_proc_tasks};
 use crate::ScanOutcome;
-use std::{collections::HashMap, fs, thread, time::Duration};
+
+const MAP_SCAN_LIMIT: usize = 64;
+const ENTRY_SCAN_LIMIT: usize = 65536;
 
 pub fn run() -> ScanOutcome {
-    let first = snapshot();
-    thread::sleep(Duration::from_millis(100));
-    let second = snapshot();
+    let bpf_snapshot = match collect_bpf_tasks(MAP_SCAN_LIMIT, ENTRY_SCAN_LIMIT) {
+        Ok(snapshot) => snapshot,
+        Err(err) => return Err(err),
+    };
 
-    if first.is_empty() || second.is_empty() {
-        return Err("failed to enumerate /proc tasks".to_string());
+    let proc_snapshot = match collect_proc_tasks() {
+        Ok(map) => map,
+        Err(err) => return Err(err),
+    };
+
+    if proc_snapshot.is_empty() {
+        return Err("no tasks enumerated via /proc".to_string());
     }
 
     let mut findings = Vec::new();
+    let errors = bpf_snapshot.errors;
 
-    for (pid, comm) in first.iter() {
-        if !second.contains_key(pid) {
-            findings.push(format!("seen_by=bpf_only, pid={}, comm={}", pid, comm));
+    for (pid, record) in &bpf_snapshot.tasks {
+        if !proc_snapshot.contains_key(pid) {
+            let comm = record.comm.as_deref().unwrap_or("unknown");
+            let sources = record.sources.join("|");
+            findings.push(format!(
+                "seen_by=bpf_only, pid={}, comm={}, sources={}",
+                pid, comm, sources
+            ));
         }
     }
 
-    for (pid, comm) in second.iter() {
-        if !first.contains_key(pid) {
+    for (pid, comm) in &proc_snapshot {
+        if !bpf_snapshot.tasks.contains_key(pid) {
             findings.push(format!("seen_by=proc_only, pid={}, comm={}", pid, comm));
         }
     }
 
     if findings.is_empty() {
-        Ok(None)
+        if errors.is_empty() {
+            Ok(None)
+        } else {
+            Err(errors.join(", "))
+        }
     } else {
         findings.sort();
+        if !errors.is_empty() {
+            findings.push(format!("collection_errors={}", errors.join(", ")));
+        }
         Ok(Some(findings.join("\n")))
     }
-}
-
-fn snapshot() -> HashMap<i32, String> {
-    let mut map = HashMap::new();
-    let entries = match fs::read_dir("/proc") {
-        Ok(entries) => entries,
-        Err(_) => return map,
-    };
-
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let pid_str = match name.to_str() {
-            Some(s) => s,
-            None => continue,
-        };
-        let pid: i32 = match pid_str.parse() {
-            Ok(pid) => pid,
-            Err(_) => continue,
-        };
-
-        if let Ok(comm) = fs::read_to_string(entry.path().join("comm")) {
-            map.insert(pid, comm.trim().to_string());
-        }
-    }
-
-    map
 }

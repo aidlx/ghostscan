@@ -160,10 +160,6 @@ const SCANNERS: &[Scanner] = &[
         func: live_ld_preload::run,
     },
     Scanner {
-        name: "memfd / deleted executable",
-        func: deleted_memfd::run,
-    },
-    Scanner {
         name: "Library search hijack (SUID/priv)",
         func: library_search_hijack::run,
     },

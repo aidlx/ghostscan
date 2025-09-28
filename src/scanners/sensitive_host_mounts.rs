@@ -9,14 +9,11 @@ const SENSITIVE_SOURCES: &[&str] = &[
 ];
 
 pub fn run() -> ScanOutcome {
-    let states = match collect_container_states(1024) {
-        Ok(states) => states,
-        Err(err) => return Err(err),
-    };
-
+    let inventory = collect_container_states(1024);
     let mut findings = Vec::new();
+    let errors = inventory.errors;
 
-    for state in states {
+    for state in inventory.states {
         for mount in &state.mounts {
             if let Some(source) = &mount.source {
                 for sensitive in SENSITIVE_SOURCES {
@@ -33,9 +30,16 @@ pub fn run() -> ScanOutcome {
     }
 
     if findings.is_empty() {
-        Ok(None)
+        if errors.is_empty() {
+            Ok(None)
+        } else {
+            Err(errors.join(", "))
+        }
     } else {
         findings.sort();
+        if !errors.is_empty() {
+            findings.push(format!("collection_errors={}", errors.join(", ")));
+        }
         Ok(Some(findings.join("\n")))
     }
 }

@@ -5,6 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const SENSITIVE_PREFIXES: &[&str] = &["sys_", "vfs_", "tcp_", "security_"];
+const EVENT_TOOL_HINTS: &[&str] = &["bpftrace", "tracee", "bcc", "systemtap", "perf_", "uftrace"];
+const MIN_HITS: u64 = 10;
+
 pub fn run() -> ScanOutcome {
     let trace_root =
         find_tracefs_root().map_err(|err| format!("failed to locate tracefs: {err}"))?;
@@ -39,6 +43,18 @@ pub fn run() -> ScanOutcome {
             .get(&(event.probe_type, event.event_name.clone()))
             .copied()
             .unwrap_or(0);
+
+        if hits < MIN_HITS {
+            continue;
+        }
+
+        let event_name_lower = event.event_name.to_ascii_lowercase();
+        if EVENT_TOOL_HINTS
+            .iter()
+            .any(|hint| event_name_lower.contains(hint))
+        {
+            continue;
+        }
 
         findings.push(format!(
             "type={}, target={}, hits={}, raw={}",
@@ -188,8 +204,9 @@ fn parse_kprobe_profile(content: &str) -> BTreeMap<(ProbeType, String), u64> {
 }
 
 fn is_sensitive_symbol(symbol: &str) -> bool {
-    const PREFIXES: [&str; 4] = ["sys_", "vfs_", "tcp_", "security_"];
-    PREFIXES.iter().any(|prefix| symbol.starts_with(prefix))
+    SENSITIVE_PREFIXES
+        .iter()
+        .any(|prefix| symbol.starts_with(prefix))
 }
 
 fn find_tracefs_root() -> io::Result<PathBuf> {

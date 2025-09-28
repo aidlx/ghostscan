@@ -42,5 +42,6 @@ pub mod suspicious_ptrace;
 pub mod syscall_table;
 pub mod systemd_ghost;
 pub mod task_list_mismatch;
+pub mod task_snapshot;
 pub mod unknown_kprobes;
 pub mod xdp_tc_detached;

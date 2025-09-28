@@ -1,3 +1,7 @@
+# Work-in-progress
+
+This project is still WIP. Many scanners are suboptimal and needs to be developed further.
+
 # ghostscan
 
 ghostscan is the grab-it-run-it-read-it toolkit for responders who need a fast gut check on a Linux host. Drop the binary on a box, run it once, and ghostscan walks the kernel, procfs, bpffs, systemd, cron, sockets, and more to surface the things an attacker would rather you never notice.

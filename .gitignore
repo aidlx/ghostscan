@@ -1,1 +1,3 @@
 /target
+bpf/vmlinux.h
+bpf/*.bpf.o

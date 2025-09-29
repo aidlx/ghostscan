@@ -13,6 +13,184 @@ pub struct BpfTaskRecord {
     pub sources: Vec<String>,
 }
 
+#[cfg(target_os = "linux")]
+mod iter_task_loader {
+    use super::{BpfTaskRecord, BpfTaskSnapshot};
+    use libbpf_rs::Link;
+    use libbpf_rs::{AsRawLibbpf, Iter, MapFlags, ObjectBuilder};
+    use std::io::Read;
+    use std::mem;
+    use std::ptr::NonNull;
+
+    const BPF_OBJECT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/task_snapshot.bpf.o"));
+    const MAP_NAME: &str = "ghostscan_task_pids";
+    const PROGRAM_NAME: &str = "ghostscan_iter_task";
+    const SOURCE_LABEL: &str = "ghostscan_bpf_iter";
+
+    pub(super) fn populate_iter_tasks(entry_limit: usize, snapshot: &mut BpfTaskSnapshot) {
+        if entry_limit == 0 {
+            return;
+        }
+
+        if let Err(err) = run(entry_limit, snapshot) {
+            snapshot.errors.push(err);
+        }
+    }
+
+    fn run(entry_limit: usize, snapshot: &mut BpfTaskSnapshot) -> Result<(), String> {
+        if let Err(err) = bump_memlock_limit() {
+            snapshot.errors.push(err);
+        }
+
+        let mut builder = ObjectBuilder::default();
+        builder.relaxed_maps(true);
+
+        let mut obj = builder
+            .open_memory(BPF_OBJECT)
+            .map_err(|err| format!("failed to open embedded task iter BPF: {err}"))?
+            .load()
+            .map_err(|err| format!("failed to load embedded task iter BPF: {err}"))?;
+
+        let link = {
+            let mut prog = obj
+                .prog_mut(PROGRAM_NAME)
+                .ok_or_else(|| "embedded iter/task program missing".to_string())?;
+            attach_iter(&mut prog)
+                .map_err(|err| format!("failed to attach iter/task program: {err}"))?
+        };
+
+        let mut iter = Iter::new(&link)
+            .map_err(|err| format!("failed to create BPF iterator handle: {err}"))?;
+        let mut drain = [0u8; 4096];
+        while iter
+            .read(&mut drain)
+            .map_err(|err| format!("failed to read from iter/task output: {err}"))?
+            > 0
+        {}
+        drop(iter);
+        drop(link);
+
+        let map = obj
+            .map(MAP_NAME)
+            .ok_or_else(|| "embedded iter/task PID map missing".to_string())?;
+
+        let mut processed = 0usize;
+        let source = SOURCE_LABEL.to_string();
+        for key in map.keys() {
+            if processed >= entry_limit {
+                snapshot.errors.push(format!(
+                    "iter/task map truncated at {} entries",
+                    entry_limit
+                ));
+                break;
+            }
+            processed += 1;
+
+            if key.len() < mem::size_of::<i32>() {
+                continue;
+            }
+
+            let mut buf = [0u8; mem::size_of::<i32>()];
+            buf.copy_from_slice(&key[..mem::size_of::<i32>()]);
+            let pid = i32::from_ne_bytes(buf);
+            if pid <= 0 {
+                continue;
+            }
+
+            let value = match map.lookup(&key, MapFlags::ANY) {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => Vec::new(),
+                Err(err) => {
+                    return Err(format!("iter/task map lookup failed: {err}"));
+                }
+            };
+
+            let comm = parse_comm(&value);
+            let record = snapshot.tasks.entry(pid).or_insert_with(|| BpfTaskRecord {
+                comm: comm.clone(),
+                sources: vec![source.clone()],
+            });
+            if record.comm.is_none() && comm.is_some() {
+                record.comm = comm;
+            }
+            if !record.sources.contains(&source) {
+                record.sources.push(source.clone());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn attach_iter(prog: &mut libbpf_rs::Program) -> Result<Link, libbpf_rs::Error> {
+        unsafe {
+            let prog_ptr = prog.as_libbpf_object();
+            let mut link_info = libbpf_sys::bpf_iter_link_info::default();
+            let attach_opts = libbpf_sys::bpf_iter_attach_opts {
+                link_info: &mut link_info as *mut libbpf_sys::bpf_iter_link_info,
+                link_info_len: mem::size_of::<libbpf_sys::bpf_iter_link_info>() as _,
+                sz: mem::size_of::<libbpf_sys::bpf_iter_attach_opts>() as _,
+                ..Default::default()
+            };
+
+            let raw = libbpf_sys::bpf_program__attach_iter(
+                prog_ptr.as_ptr(),
+                &attach_opts as *const libbpf_sys::bpf_iter_attach_opts,
+            );
+            if raw.is_null() {
+                let errno = std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EPERM);
+                return Err(libbpf_rs::Error::from_raw_os_error(errno));
+            }
+
+            let err = libbpf_sys::libbpf_get_error(raw.cast());
+            if err != 0 {
+                return Err(libbpf_rs::Error::from_raw_os_error(-err as i32));
+            }
+
+            let ptr = NonNull::new(raw)
+                .ok_or_else(|| libbpf_rs::Error::from_raw_os_error(libc::EINVAL))?;
+            Ok(Link::from_ptr(ptr))
+        }
+    }
+
+    fn parse_comm(bytes: &[u8]) -> Option<String> {
+        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+        if end == 0 {
+            return None;
+        }
+        if !bytes[..end].iter().all(|b| b.is_ascii()) {
+            return None;
+        }
+        String::from_utf8(bytes[..end].to_vec()).ok()
+    }
+
+    fn bump_memlock_limit() -> Result<(), String> {
+        let rlimit = libc::rlimit {
+            rlim_cur: libc::RLIM_INFINITY,
+            rlim_max: libc::RLIM_INFINITY,
+        };
+        let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlimit) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            Err(format!("failed to raise memlock rlimit: {err}"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod iter_task_loader {
+    use super::BpfTaskSnapshot;
+
+    pub(super) fn populate_iter_tasks(_entry_limit: usize, snapshot: &mut BpfTaskSnapshot) {
+        snapshot
+            .errors
+            .push("iter/task population not supported on this platform".to_string());
+    }
+}
+
 const MAP_NAME_HINTS: &[&str] = &["pid", "task", "proc"];
 const MAP_TYPES: &[&str] = &["hash", "lru_hash", "percpu_hash", "lru_percpu_hash"];
 
@@ -20,6 +198,9 @@ pub fn collect_bpf_tasks(map_limit: usize, entry_limit: usize) -> Result<BpfTask
     if map_limit == 0 || entry_limit == 0 {
         return Err("map_limit and entry_limit must be non-zero".to_string());
     }
+
+    let mut snapshot = BpfTaskSnapshot::default();
+    iter_task_loader::populate_iter_tasks(entry_limit, &mut snapshot);
 
     let show = Command::new("bpftool")
         .args(["-j", "map", "show"])
@@ -41,7 +222,6 @@ pub fn collect_bpf_tasks(map_limit: usize, entry_limit: usize) -> Result<BpfTask
         .as_array()
         .ok_or_else(|| "bpftool map show output was not an array".to_string())?;
 
-    let mut snapshot = BpfTaskSnapshot::default();
     let mut processed = 0usize;
 
     for map in maps {

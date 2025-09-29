@@ -38,7 +38,7 @@ Fast one-shot sweep for Linux incident response. Drop the binary on a host, run 
 - **Kernel thread masquerade**: detects kernel threads spoofing user process metadata.
 - **Suspicious ptrace edges**: reports unusual ptrace parent/child relationships.
 - **Deleted or memfd binaries**: lists processes executing from deleted files or memfd mounts.
-- **Hidden listeners**: identifies listeners seen via netlink but missing from `/proc`.
+- **Hidden listeners**: identifies listeners seen via netlink vs `/proc` vs BPF.
 - **Ownerless sockets**: reports sockets without an owning task.
 - **Netfilter cloaking**: spots tampering patterns that hide netfilter rules.
 - **Local port backdoors**: highlights sockets bound to deleted or temporary paths.

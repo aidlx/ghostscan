@@ -15,6 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("cargo:rerun-if-changed=bpf/task_snapshot.bpf.c");
+    println!("cargo:rerun-if-changed=bpf/hidden_listeners.bpf.c");
     println!("cargo:rerun-if-env-changed=BPF_VMLINUX");
     println!("cargo:rerun-if-env-changed=BPF_VMLINUX_H");
     println!("cargo:rerun-if-env-changed=BPF_TARGET_ARCH");
@@ -61,7 +62,7 @@ fn prepare_vmlinux_header(out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
     Ok(header_path)
 }
 
-fn compile_bpf(out_dir: &Path, vmlinux_header: &Path) -> Result<PathBuf, Box<dyn Error>> {
+fn compile_bpf(out_dir: &Path, vmlinux_header: &Path) -> Result<(), Box<dyn Error>> {
     let clang = env::var("BPF_CLANG")
         .or_else(|_| env::var("CLANG"))
         .unwrap_or_else(|_| "clang".to_string());
@@ -71,37 +72,44 @@ fn compile_bpf(out_dir: &Path, vmlinux_header: &Path) -> Result<PathBuf, Box<dyn
         return Err("unable to determine BPF target arch".into());
     }
 
-    let src = Path::new("bpf").join("task_snapshot.bpf.c");
-    let obj = out_dir.join("task_snapshot.bpf.o");
+    let sources = [
+        ("task_snapshot.bpf.c", "task_snapshot.bpf.o"),
+        ("hidden_listeners.bpf.c", "hidden_listeners.bpf.o"),
+    ];
 
-    let output = Command::new(&clang)
-        .args(["-target", "bpf", "-O2", "-g", "-Wall", "-Werror"])
-        .arg(format!("-D__TARGET_ARCH_{}", arch))
-        .arg("-I")
-        .arg(out_dir)
-        .arg("-I")
-        .arg("bpf")
-        .arg("-c")
-        .arg(&src)
-        .arg("-o")
-        .arg(&obj)
-        .output()
-        .map_err(|err| format!("failed to execute '{clang}': {err}"))?;
+    for (src_name, obj_name) in sources {
+        let src = Path::new("bpf").join(src_name);
+        let obj = out_dir.join(obj_name);
 
-    if !output.status.success() {
-        return Err(format!(
-            "{clang} failed to compile {}: {}",
-            src.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )
-        .into());
+        let output = Command::new(&clang)
+            .args(["-target", "bpf", "-O2", "-g", "-Wall", "-Werror"])
+            .arg(format!("-D__TARGET_ARCH_{}", arch))
+            .arg("-I")
+            .arg(out_dir)
+            .arg("-I")
+            .arg("bpf")
+            .arg("-c")
+            .arg(&src)
+            .arg("-o")
+            .arg(&obj)
+            .output()
+            .map_err(|err| format!("failed to execute '{clang}': {err}"))?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "{clang} failed to compile {}: {}",
+                src.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+            .into());
+        }
     }
 
     // Ensure the header exists to keep the compiler happy even if clang's include cache changes.
     if !vmlinux_header.exists() {
         return Err(format!("missing generated header {}", vmlinux_header.display()).into());
     }
-    Ok(obj)
+    Ok(())
 }
 
 fn map_target_arch() -> String {

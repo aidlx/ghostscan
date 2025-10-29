@@ -34,12 +34,14 @@ static __always_inline void record_sock_common(const struct sock_common *common,
         return;
     }
 
-    __u16 fam = BPF_CORE_READ(common, skc_family);
+    __u16 fam = 0;
+    BPF_CORE_READ_INTO(&fam, common, skc_family);
     if (fam != GHOST_AF_INET && fam != GHOST_AF_INET6) {
         return;
     }
 
-    __u16 num = BPF_CORE_READ(common, skc_num);
+    __u16 num = 0;
+    BPF_CORE_READ_INTO(&num, common, skc_num);
     if (num == 0) {
         return;
     }
@@ -56,10 +58,12 @@ static __always_inline void record_sock_common(const struct sock_common *common,
     };
 
     if (fam == GHOST_AF_INET) {
-        __be32 v4 = BPF_CORE_READ(common, skc_rcv_saddr);
+        __be32 v4 = 0;
+        BPF_CORE_READ_INTO(&v4, common, skc_rcv_saddr);
         __builtin_memcpy(&key.addr[0], &v4, sizeof(v4));
     } else {
-        struct in6_addr v6 = BPF_CORE_READ(common, skc_v6_rcv_saddr);
+        struct in6_addr v6 = {};
+        BPF_CORE_READ_INTO(&v6, common, skc_v6_rcv_saddr);
         __builtin_memcpy(&key.addr[0], &v6, sizeof(v6));
     }
 
@@ -68,7 +72,8 @@ static __always_inline void record_sock_common(const struct sock_common *common,
         .netns_inum = 0,
     };
 
-    struct net *net = BPF_CORE_READ(common, skc_net.net);
+    struct net *net = NULL;
+    BPF_CORE_READ_INTO(&net, common, skc_net.net);
     if (net) {
         value.netns_inum = BPF_CORE_READ(net, ns.inum);
     }

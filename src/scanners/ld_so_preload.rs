@@ -27,8 +27,12 @@ pub fn run() -> ScanOutcome {
         if !path.exists() {
             parts.push("exists=false".to_string());
         } else if let Ok(metadata) = path.metadata() {
-            if metadata.mode() & 0o002 != 0 {
-                parts.push("parent_writable=true".to_string());
+            if let Some(parent) = path.parent() {
+                if let Ok(parent_meta) = parent.metadata() {
+                    if parent_meta.mode() & 0o002 != 0 {
+                        parts.push(format!("parent_writable=true (dir={})", parent.display()));
+                    }
+                }
             }
             if metadata.uid() != 0 {
                 parts.push("owner!=root".to_string());

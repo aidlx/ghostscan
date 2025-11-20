@@ -12,12 +12,18 @@ struct JournalLine {
 
 pub fn run() -> ScanOutcome {
     let output = Command::new("journalctl")
-        .args(["--since=boot", "--output=json", "--no-pager", "-n", "2000"])
+        // Use -b to scope to current boot; more portable than --since=boot.
+        .args(["-b", "--output=json", "--no-pager", "-n", "2000"])
         .output()
         .map_err(|err| format!("failed to execute journalctl: {err}"))?;
 
     if !output.status.success() {
-        return Ok(None);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "journalctl exited with {}: {}",
+            output.status,
+            stderr.trim()
+        ));
     }
 
     let mut timestamps = Vec::new();

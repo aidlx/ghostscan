@@ -19,7 +19,8 @@ pub fn run() -> ScanOutcome {
     let levels: Vec<&str> = printk.split_whitespace().collect();
     if let Some(console) = levels.get(0) {
         if let Ok(level) = console.parse::<i32>() {
-            if level > 7 {
+            // Lower console loglevels drop more messages, so flag suppressed consoles.
+            if level < 7 {
                 findings.push("printk_console_level_silenced=true".to_string());
             }
         }

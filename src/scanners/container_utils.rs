@@ -100,9 +100,11 @@ fn find_state_files(root: &Path, limit: usize, files: &mut Vec<PathBuf>, errors:
     let mut queue = VecDeque::new();
     queue.push_back(root.to_path_buf());
     let mut visited = 0usize;
+    let mut truncated = false;
 
     while let Some(dir) = queue.pop_front() {
         if visited >= limit {
+            truncated = true;
             break;
         }
         visited += 1;
@@ -139,5 +141,12 @@ fn find_state_files(root: &Path, limit: usize, files: &mut Vec<PathBuf>, errors:
                 files.push(path);
             }
         }
+    }
+
+    if truncated {
+        errors.push(format!(
+            "container state search truncated at {limit} entries under {}",
+            root.display()
+        ));
     }
 }

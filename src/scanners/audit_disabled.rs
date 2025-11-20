@@ -17,6 +17,8 @@ pub fn run() -> ScanOutcome {
         findings.push("enabled=0".to_string());
     }
 
+    let mut backlog_limit: Option<u64> = None;
+
     if let Ok(content) = fs::read_to_string("/proc/net/audit") {
         for line in content.lines() {
             for token in line.split_whitespace() {
@@ -25,14 +27,19 @@ pub fn run() -> ScanOutcome {
                         findings.push(format!("lost_events={}", rest));
                     }
                 }
-                if let Some(rest) = token.strip_prefix("backlog=") {
+                if let Some(rest) = token.strip_prefix("backlog_limit=") {
                     if let Ok(value) = rest.parse::<u64>() {
-                        if value < 8 {
-                            findings.push("backlog_limit_tiny=true".to_string());
-                        }
+                        backlog_limit = Some(value);
                     }
                 }
             }
+        }
+    }
+
+    const MIN_BACKLOG_LIMIT: u64 = 32;
+    if let Some(limit) = backlog_limit {
+        if limit < MIN_BACKLOG_LIMIT {
+            findings.push(format!("backlog_limit_small={}", limit));
         }
     }
 

@@ -23,6 +23,7 @@ Fast one-shot sweep for Linux incident response. Drop the binary on a host, run 
 - **Ftrace redirection**: spots risky `ftrace` hooks on critical kernel paths.
 - **Unknown kprobes**: looks for kprobes attached to sensitive symbols that ghostscan cannot explain.
 - **Syscall table integrity**: verifies syscall table pointers for tampering.
+- **`modprobe` helper tamper**: flags helper paths that point to tmp, missing, or writable binaries.
 - **Netfilter hook drift**: finds orphaned or invalid netfilter hook jumps.
 - **Module linkage tamper**: checks module list pointers for manipulation.
 - **Ownerless BPF objects**: reports BPF maps/programs without a backing task.
@@ -37,7 +38,9 @@ Fast one-shot sweep for Linux incident response. Drop the binary on a host, run 
 - **Hidden PIDs**: uses BPF-only views to reveal task IDs invisible to `/proc`.
 - **Kernel thread masquerade**: detects kernel threads spoofing user process metadata.
 - **Suspicious ptrace edges**: reports unusual ptrace parent/child relationships.
+- **Seccomp user-notify responders**: lists processes holding seccomp notification FDs.
 - **Deleted or memfd binaries**: lists processes executing from deleted files or memfd mounts.
+- **Core dump pipeline backdoors**: inspects `core_pattern`/`core_pipe_limit` for piped handlers to tmp/deleted paths.
 - **Hidden listeners**: identifies listeners seen via netlink vs `/proc` vs BPF.
 - **Ownerless sockets**: reports sockets without an owning task.
 - **Netfilter cloaking**: spots tampering patterns that hide netfilter rules.
@@ -48,6 +51,7 @@ Fast one-shot sweep for Linux incident response. Drop the binary on a host, run 
 - **SSH footholds**: surfaces dangerous `authorized_keys` options and forced commands.
 - **OverlayFS whiteouts**: reports suspicious opaque or whiteout entries in OverlayFS.
 - **Hidden bind mounts**: lists bind or immutable mounts likely used for concealment.
+- **Fanotify watchers**: points out fanotify marks on `/`, `/proc`, or container roots.
 - **PAM/NSS modules**: flags PAM or NSS modules loaded from non-system paths.
 - **Live `LD_PRELOAD`**: notes processes still using deleted or writable preload libraries.
 - **Library search hijack**: checks SUID/privileged binaries for unsafe search paths.
@@ -59,6 +63,7 @@ Fast one-shot sweep for Linux incident response. Drop the binary on a host, run 
 - **Kernel cmdline**: alerts on boot parameters that disable audit, lockdown, or IMA.
 - **Sensitive host mounts**: identifies sensitive host paths exposed inside containers.
 - **Host PID namespace**: reports containers sharing the host PID namespace.
+- **Host net namespace**: reports containers sharing the host net namespace.
 - **Overlay lowerdir**: catches OverlayFS lowerdirs that escape the storage root.
 - **Audit disabled**: detects when auditd is off or dropping records.
 - **Journal gaps**: looks for missing spans in the current boot's journal.

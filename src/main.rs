@@ -3,13 +3,14 @@ pub type ScanOutcome = Result<Option<String>, String>;
 mod scanners;
 
 use scanners::{
-    audit_disabled, bpf_kprobe_attachments, bpf_lsm, cron_ghost, deleted_memfd, ftrace_redirection,
-    hidden_bind_mounts, hidden_listeners, hidden_lkm, hidden_pids, host_pid_ns, journal_gaps,
-    kernel_cmdline, kernel_message_suppression, kernel_taint, kernel_text_ro,
-    kernel_thread_masquerade, large_rx, ld_audit, ld_so_preload, library_search_hijack,
-    live_ld_preload, local_port_backdoors, module_list_linkage_tamper, netfilter_cloaking,
-    netfilter_hook_drift, netlink_vs_proc, overlay_lowerdir, overlayfs_whiteouts,
-    ownerless_bpf_objects, ownerless_sockets, pam_nss, pins_non_bpffs, scripts_d,
+    audit_disabled, bpf_kprobe_attachments, bpf_lsm, core_pattern_pipeline, cron_ghost,
+    deleted_memfd, fanotify_watchers, ftrace_redirection, hidden_bind_mounts, hidden_listeners,
+    hidden_lkm, hidden_pids, host_net_ns, host_pid_ns, journal_gaps, kernel_cmdline,
+    kernel_message_suppression, kernel_taint, kernel_text_ro, kernel_thread_masquerade, large_rx,
+    ld_audit, ld_so_preload, library_search_hijack, live_ld_preload, local_port_backdoors,
+    modprobe_hotplug, module_list_linkage_tamper, netfilter_cloaking, netfilter_hook_drift,
+    netlink_vs_proc, overlay_lowerdir, overlayfs_whiteouts, ownerless_bpf_objects,
+    ownerless_sockets, pam_nss, pins_non_bpffs, scripts_d, seccomp_user_notify,
     sensitive_host_mounts, sensitive_kfunc, sockmap_sockhash, ssh_footholds, sudoers,
     suspicious_ptrace, syscall_table, systemd_ghost, task_list_mismatch, unknown_kprobes,
     xdp_tc_detached,
@@ -50,6 +51,10 @@ const SCANNERS: &[Scanner] = &[
     Scanner {
         name: "Syscall table pointer integrity",
         func: syscall_table::run,
+    },
+    Scanner {
+        name: "modprobe helper tamper",
+        func: modprobe_hotplug::run,
     },
     Scanner {
         name: "Netfilter hook drift (orphans/invalid jumps)",
@@ -108,8 +113,16 @@ const SCANNERS: &[Scanner] = &[
         func: suspicious_ptrace::run,
     },
     Scanner {
+        name: "Seccomp user-notify responders",
+        func: seccomp_user_notify::run,
+    },
+    Scanner {
         name: "Deleted-binary or memfd processes",
         func: deleted_memfd::run,
+    },
+    Scanner {
+        name: "Core dump pipeline tamper",
+        func: core_pattern_pipeline::run,
     },
     Scanner {
         name: "Hidden listeners (netlink-only)",
@@ -150,6 +163,10 @@ const SCANNERS: &[Scanner] = &[
     Scanner {
         name: "Hidden bind/immutable mounts",
         func: hidden_bind_mounts::run,
+    },
+    Scanner {
+        name: "Fanotify watchers on sensitive mounts",
+        func: fanotify_watchers::run,
     },
     Scanner {
         name: "PAM/NSS modules from non-system paths",
@@ -194,6 +211,10 @@ const SCANNERS: &[Scanner] = &[
     Scanner {
         name: "Host PID namespace shared",
         func: host_pid_ns::run,
+    },
+    Scanner {
+        name: "Host net namespace shared",
+        func: host_net_ns::run,
     },
     Scanner {
         name: "Overlay lowerdir outside storage root",
